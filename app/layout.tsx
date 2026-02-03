@@ -1,5 +1,7 @@
 import { FC, PropsWithChildren } from "react";
 import '@/app/ui/globals.css';
+import "react-modern-gantt/dist/index.css";
+import "@svar-ui/react-gantt/all.css";
 import { roboto } from "./ui/font";
 import { ThemeProvider } from "./components/providers/ThemeProvider";
 

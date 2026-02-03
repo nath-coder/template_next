@@ -128,3 +128,17 @@
     @apply bg-background text-foreground;
   }
 }
+.demo {
+  height: 100%;
+}
+
+/* fuerza al “root” del gantt */
+.demo .wx-gantt {
+  height: 100%;
+}
+
+/* fuerza grid y timeline a estirarse */
+.demo .wx-gantt-grid,
+.demo .wx-gantt-timeline {
+  height: 100%;
+}

@@ -51,7 +51,7 @@ Authorization: Bearer
 
 ### Customers
 GET https://backend-next-tutorial-fay6a.ondigitalocean.app/api/v1/customer HTTP/1.1
-Authorization: Bearer 
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5NzViZTQ3NjFjYzI2MzJhOWQxZDc4ZSIsImVtYWlsIjoiZGlhbmFAZ21haWwuY29tIiwibmFtZSI6IkRpYW5hUHJpbmNlIiwiaWF0IjoxNzcwMDg1NTMyfQ.UUiYi7s5rsNEUNhLdAivo8sdA2ozvYRXiCm-L73mxH8
 
 ### Customers Count
 GET https://backend-next-tutorial-fay6a.ondigitalocean.app/api/v1/customer/count HTTP/1.1
