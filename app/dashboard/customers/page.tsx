@@ -1,7 +1,7 @@
 "use client";
 
 import React, { Suspense, useEffect, useState, useMemo } from "react";
-import { customersApi } from "@/app/helpers/api";
+import { customersApi } from "@/service/api";
 import { Customer } from "@/lib/types";
 import { Avatar, AvatarFallback, AvatarImage } from "@/app/components/ui/avatar";
 import { Button } from "@/app/components/ui/button";

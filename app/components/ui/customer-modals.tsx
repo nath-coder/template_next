@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { customersApi } from "@/app/helpers/api";
+import { customersApi } from "@/service/api";
 import { Customer } from "@/lib/types";
 import { Button } from "@/app/components/ui/button";
 import { Input } from "@/app/components/ui/input";
