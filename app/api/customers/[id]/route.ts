@@ -1,19 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import axios from 'axios';
+import { serverApi } from '@/lib/ServiceApi';
 
-// Configuración de la API externa
-const API_BASE_URL = 'https://backend-next-tutorial-fay6a.ondigitalocean.app/api/v1';
-const API_TOKEN = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY5NzViZTQ3NjFjYzI2MzJhOWQxZDc4ZSIsImVtYWlsIjoiZGlhbmFAZ21haWwuY29tIiwibmFtZSI6IkRpYW5hUHJpbmNlIiwiaWF0IjoxNzcwMDg1NTMyfQ.UUiYi7s5rsNEUNhLdAivo8sdA2ozvYRXiCm-L73mxH8';
-
-// Configurar axios para el servidor
-const serverApi = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10000,
-  headers: {
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${API_TOKEN}`,
-  },
-});
 
 // GET /api/customers/[id] - Obtener un customer por ID
 export async function GET(

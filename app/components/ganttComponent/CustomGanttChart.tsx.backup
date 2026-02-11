@@ -1,0 +1,1092 @@
+// Re-exportar el componente refactorizado manteniendo la misma interfaz
+export { default } from './CustomGanttChartRefactored';
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [tooltip, setTooltip] = useState<TooltipState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    task: null,
+  });
+  const [selectedTask, setSelectedTask] = useState<string | null>(null);
+  
+  // Estado para dimensiones del contenido
+  const [contentDimensions, setContentDimensions] = useState({
+    width: 800,
+    height: 600
+  });
+
+  // Definir tipo extendido para jerarquía
+  interface HierarchicalTask extends GanttTask {
+    children: string[];
+    level: number;
+  }
+
+  // Función para calcular el rango de fechas automáticamente desde las tareas
+  const getDateRange = useCallback(() => {
+    if (snapshot.tasks.length === 0) {
+      const today = new Date();
+      return {
+        startDate: today,
+        endDate: new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)
+      };
+    }
+
+    let minDate = new Date(snapshot.tasks[0].start);
+    let maxDate = new Date(snapshot.tasks[0].end);
+
+    snapshot.tasks.forEach(task => {
+      const taskStart = new Date(task.start);
+      const taskEnd = new Date(task.end);
+      
+      if (taskStart < minDate) minDate = taskStart;
+      if (taskEnd > maxDate) maxDate = taskEnd;
+    });
+
+    // Agregar margen según la escala de tiempo
+    let marginMs = 0;
+    switch (timeScale) {
+      case "minute":
+      case "hour":
+        marginMs = 2 * 60 * 60 * 1000; // 2 horas
+        break;
+      case "day":
+        marginMs = 24 * 60 * 60 * 1000; // 1 día
+        break;
+      case "month":
+        marginMs = 30 * 24 * 60 * 60 * 1000; // 1 mes
+        break;
+      case "quarter":
+      case "year":
+        marginMs = 365 * 24 * 60 * 60 * 1000; // 1 año
+        break;
+    }
+
+    return {
+      startDate: new Date(minDate.getTime() - marginMs),
+      endDate: new Date(maxDate.getTime() + marginMs)
+    };
+  }, [snapshot.tasks, timeScale]);
+
+  // Configuración del panel izquierdo expandido
+  const panelConfig = useMemo(() => ({
+    nameWidth: 200,
+    startDateWidth: 100,
+    endDateWidth: 100, 
+    durationWidth: 80,
+    codeWidth: 80,
+    totalWidth: 560 // nameWidth + startDateWidth + endDateWidth + durationWidth + codeWidth
+  }), []);
+
+  // Configuración del tema dinámica
+  const colors: GanttColors = useMemo(() => {
+    const isDark = theme === 'dark';
+    return {
+      summary: isDark ? "#374151" : "#1f2937",
+      task: isDark ? "#4b5563" : "#374151",
+      milestone: isDark ? "#ffffff" : "#000000",
+      progressFill: isDark ? "#059669" : "#10b981",
+      progressBg: isDark ? "#374151" : "#e5e7eb",
+      border: isDark ? "#6b7280" : "#6b7280",
+      text: isDark ? "#d1d5db" : "#1f2937",
+      background: isDark ? "#111827" : "#ffffff",
+      selectedColor: isDark ? "#60a5fa" : "#3b82f6",
+      gridLineColor: isDark ? "#374151" : "#e5e7eb",
+      arrowColor: isDark ? "#9ca3af" : "#6b7280"
+    };
+  }, [theme]);
+
+  // Configuración de dimensiones mejorada
+  const config = useMemo(() => ({
+    rowHeight: 50,  // Incrementado para evitar overlap
+    taskHeight: 30, // Incrementado
+    milestoneSize: 16, // Incrementado
+    leftPanelWidth: panelConfig.totalWidth, // Ancho total del panel expandido
+    headerHeight: 90, // Incrementado
+    timeHeaderHeight: 45, // Altura para header de tiempo
+    minCellWidth: 80, // Ancho mínimo de celda de tiempo (aumentado considerablemente)
+    gridLineColor: "#e5e7eb",
+    selectedColor: "#3b82f6",
+    arrowColor: "#6b7280"
+  }), [panelConfig.totalWidth]);
+
+  // Función para crear jerarquía de tareas con visibilidad
+  const createTaskHierarchy = useCallback((): HierarchicalTask[] => {
+    const taskMap = new Map<string, HierarchicalTask>();
+    
+    // Inicializar todas las tareas
+    snapshot.tasks.forEach(task => {
+      taskMap.set(task.id, {
+        ...task,
+        children: [],
+        level: 0
+      });
+    });
+
+    // Construir jerarquía
+    snapshot.tasks.forEach(task => {
+      if (task.parent) {
+        const parent = taskMap.get(task.parent);
+        if (parent) {
+          parent.children.push(task.id);
+        }
+      }
+    });
+
+    // Calcular niveles
+    const calculateLevel = (taskId: string, level: number = 0): void => {
+      const task = taskMap.get(taskId);
+      if (task) {
+        task.level = level;
+        task.children.forEach(childId => {
+          calculateLevel(childId, level + 1);
+        });
+      }
+    };
+
+    // Calcular niveles para tareas raíz
+    snapshot.tasks.forEach(task => {
+      if (!task.parent) {
+        calculateLevel(task.id, 0);
+      }
+    });
+
+    // Filtrar tareas visibles (expandir/contraer)
+    const getVisibleTasks = (taskId: string): HierarchicalTask[] => {
+      const task = taskMap.get(taskId);
+      if (!task) return [];
+      
+      const result = [task];
+      
+      // Si es Summary y está abierto (o si está undefined, asumir abierto), mostrar hijos
+      if (task.type === "Summary" && task.open !== false) {
+        task.children.forEach(childId => {
+          result.push(...getVisibleTasks(childId));
+        });
+      }
+      
+      return result;
+    };
+
+    // Obtener todas las tareas raíz y sus visibles
+    const visibleTasks: HierarchicalTask[] = [];
+    snapshot.tasks.forEach(task => {
+      if (!task.parent) {
+        visibleTasks.push(...getVisibleTasks(task.id));
+      }
+    });
+
+    // Si no hay tareas visibles, mostrar TODAS las tareas (fallback)
+    if (visibleTasks.length === 0) {
+      return Array.from(taskMap.values()).sort((a, b) => {
+        // Ordenar por orden de aparición en el snapshot
+        const aIndex = snapshot.tasks.findIndex(t => t.id === a.id);
+        const bIndex = snapshot.tasks.findIndex(t => t.id === b.id);
+        return aIndex - bIndex;
+      });
+    }
+
+    return visibleTasks;
+  }, [snapshot.tasks]);
+
+  // Función para convertir fecha string a objeto Date
+  const parseDate = (dateStr: string): Date => {
+    return new Date(dateStr.replace(/-/g, '/'));
+  };
+
+  // Función para obtener intervalos de tiempo según la escala
+  const getTimeIntervals = useCallback((): string[] => {
+    const dateRange = getDateRange();
+    const startDate = dateRange.startDate;
+    const endDate = dateRange.endDate;
+    
+    switch (timeScale) {
+      case "minute":
+        // Generar intervalos de 30 minutos para el rango de fechas
+        const minuteIntervals: string[] = [];
+        const totalMinutes = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60));
+        const minuteStep = 30; // Cada 30 minutos
+        
+        for (let i = 0; i < totalMinutes; i += minuteStep) {
+          const currentTime = new Date(startDate.getTime() + i * 60 * 1000);
+          const timeStr = `${String(currentTime.getHours()).padStart(2, '0')}:${String(currentTime.getMinutes()).padStart(2, '0')}`;
+          minuteIntervals.push(timeStr);
+        }
+        return minuteIntervals;
+        
+      case "hour":
+        // Generar intervalos de 1 hora para el rango de fechas
+        const hourIntervals: string[] = [];
+        const totalHours = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60));
+        
+        for (let i = 0; i < totalHours; i++) {
+          const currentTime = new Date(startDate.getTime() + i * 60 * 60 * 1000);
+          const timeStr = `${String(currentTime.getHours()).padStart(2, '0')}:00`;
+          hourIntervals.push(timeStr);
+        }
+        return hourIntervals;
+        
+      case "day":
+        // Generar días del mes según el rango
+        const dayIntervals: string[] = [];
+        const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+        
+        for (let i = 0; i < Math.min(totalDays, 31); i++) {
+          const currentDate = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
+          dayIntervals.push(String(currentDate.getDate()));
+        }
+        return dayIntervals;
+      case "month":
+        // Generar meses según el rango
+        const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+        const monthIntervals: string[] = [];
+        const startYear = startDate.getFullYear();
+        const startMonth = startDate.getMonth();
+        const endYear = endDate.getFullYear();
+        const endMonth = endDate.getMonth();
+        
+        for (let year = startYear; year <= endYear; year++) {
+          const startM = year === startYear ? startMonth : 0;
+          const endM = year === endYear ? endMonth : 11;
+          
+          for (let month = startM; month <= endM; month++) {
+            monthIntervals.push(monthNames[month]);
+          }
+        }
+        return monthIntervals;
+      case "quarter":
+        return ["Q1", "Q2", "Q3", "Q4"];
+      case "year":
+        return Array.from({ length: 10 }, (_, i) => String(startDate.getFullYear() + i));
+      default:
+        return [];
+    }
+  }, [getDateRange, timeScale]);
+
+  // Función para calcular ancho total del timeline
+  const getTimelineWidth = useCallback((): number => {
+    const intervals = getTimeIntervals();
+    const totalWidth = intervals.length * config.minCellWidth;
+    
+    // Siempre usar el ancho calculado para permitir scroll horizontal
+    return totalWidth;
+  }, [config.minCellWidth, getTimeIntervals]);
+
+  // Función para calcular posición X basada en fecha y escala de tiempo
+  const getTimePosition = useCallback((dateStr: string, startDate: Date) => {
+    const date = parseDate(dateStr);
+    const cellWidth = config.minCellWidth;
+    
+    let position = 0;
+    
+    switch (timeScale) {
+      case "minute": {
+        // Intervalos de 30 minutos - calcular posición exacta dentro del intervalo
+        const diffMinutes = (date.getTime() - startDate.getTime()) / (1000 * 60);
+        const intervalIndex = Math.floor(diffMinutes / 30); // Qué intervalo de 30min
+        const minutesInInterval = diffMinutes % 30; // Minutos dentro del intervalo
+        position = intervalIndex * cellWidth + (minutesInInterval / 30) * cellWidth;
+        break;
+      }
+      
+      case "hour": {
+        // Intervalos de 1 hora - calcular posición exacta dentro de la hora
+        const diffHours = (date.getTime() - startDate.getTime()) / (1000 * 60 * 60);
+        const intervalIndex = Math.floor(diffHours); // Qué hora
+        const fractionalHour = diffHours - intervalIndex; // Fracción dentro de la hora
+        position = intervalIndex * cellWidth + fractionalHour * cellWidth;
+        break;
+      }
+      
+      case "day": {
+        // Intervalos de 1 día - calcular posición exacta dentro del día
+        const diffDays = (date.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000);
+        const intervalIndex = Math.floor(diffDays); // Qué día
+        const fractionalDay = diffDays - intervalIndex; // Fracción dentro del día
+        position = intervalIndex * cellWidth + fractionalDay * cellWidth;
+        break;
+      }
+      
+      case "month": {
+        // Intervalos de 1 mes - calcular posición exacta
+        const startYear = startDate.getFullYear();
+        const startMonth = startDate.getMonth();
+        const dateYear = date.getFullYear();
+        const dateMonth = date.getMonth();
+        
+        const monthDiff = (dateYear - startYear) * 12 + (dateMonth - startMonth);
+        
+        // Calcular la fracción dentro del mes
+        const daysInMonth = new Date(dateYear, dateMonth + 1, 0).getDate();
+        const dayOfMonth = date.getDate();
+        const startDayOfMonth = startDate.getDate();
+        
+        let fractionalMonth = 0;
+        if (monthDiff === 0) {
+          // Mismo mes - calcular fracción desde startDate
+          fractionalMonth = (dayOfMonth - startDayOfMonth) / daysInMonth;
+        } else {
+          // Mes diferente - usar posición en el mes
+          fractionalMonth = dayOfMonth / daysInMonth;
+        }
+        
+        position = monthDiff * cellWidth + fractionalMonth * cellWidth;
+        break;
+      }
+      
+      case "quarter": {
+        // Intervalos de trimestre
+        const startQuarter = Math.floor(startDate.getMonth() / 3);
+        const dateQuarter = Math.floor(date.getMonth() / 3);
+        const yearDiff = date.getFullYear() - startDate.getFullYear();
+        const quarterDiff = yearDiff * 4 + (dateQuarter - startQuarter);
+        
+        // Calcular fracción dentro del trimestre
+        const monthInQuarter = date.getMonth() % 3;
+        const dayInMonth = date.getDate();
+        const fractionalQuarter = (monthInQuarter + dayInMonth / 30) / 3;
+        
+        position = quarterDiff * cellWidth + fractionalQuarter * cellWidth;
+        break;
+      }
+      
+      case "year": {
+        // Intervalos de 1 año - calcular posición exacta
+        const yearDiff = date.getFullYear() - startDate.getFullYear();
+        
+        // Calcular la fracción dentro del año
+        const startOfYear = new Date(date.getFullYear(), 0, 1);
+        const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+        const daysInYear = new Date(date.getFullYear(), 11, 31).getDate() === 31 ? 
+          (new Date(date.getFullYear(), 1, 29).getDate() === 29 ? 366 : 365) : 365;
+        const fractionalYear = dayOfYear / daysInYear;
+        
+        position = yearDiff * cellWidth + fractionalYear * cellWidth;
+        break;
+      }
+    }
+
+    return position;
+  }, [timeScale, config.minCellWidth]);
+
+  // Función para calcular duración de tarea
+  const calculateDuration = useCallback((startDate: string, endDate: string): string => {
+    const start = parseDate(startDate);
+    const end = parseDate(endDate);
+    const diffMs = end.getTime() - start.getTime();
+    
+    const days = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+    const hours = Math.floor((diffMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+    
+    if (days > 0) {
+      return `${days}d ${hours}h`;
+    }
+    return `${hours}h`;
+  }, []);
+
+  // Función para obtener header superior
+  const getTimeHeaderTop = useCallback((): string[] => {
+    const dateRange = getDateRange();
+    const startDate = dateRange.startDate;
+    const endDate = dateRange.endDate;
+    
+    if (timeScale === "day") {
+      // Para días, mostrar los meses correspondientes al rango
+      const dates: string[] = [];
+      const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      for (let i = 0; i < Math.min(totalDays, 31); i++) {
+        const date = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
+        const monthStr = date.toLocaleDateString("es-ES", { month: "short" });
+        dates.push(monthStr);
+      }
+      return dates;
+    }
+    
+    if (timeScale === "hour" || timeScale === "minute") {
+      // Para horas y minutos, mostrar las fechas
+      const dates: string[] = [];
+      const totalDays = Math.ceil((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
+      
+      for (let i = 0; i < totalDays; i++) {
+        const date = new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000);
+        const dateStr = date.toLocaleDateString("es-ES", { 
+          day: '2-digit', 
+          month: 'short' 
+        });
+        dates.push(dateStr);
+      }
+      return dates;
+    }
+    
+    return [];
+  }, [getDateRange, timeScale]);
+
+  // Función para dibujar milestone
+  const drawMilestone = useCallback((ctx: CanvasRenderingContext2D, x: number, y: number, completed: boolean) => {
+    const size = config.milestoneSize;
+    
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 4);
+    
+    ctx.fillStyle = completed ? colors.milestone : colors.progressBg;
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 2;
+    
+    ctx.fillRect(-size/2, -size/2, size, size);
+    ctx.strokeRect(-size/2, -size/2, size, size);
+    
+    ctx.restore();
+  }, [colors, config]);
+
+  // Interface para configuración de barra
+  interface TaskBarConfig {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    progress: number;
+    type: string;
+    selected: boolean;
+  }
+
+  // Función para dibujar barra de tarea
+  const drawTaskBar = useCallback((ctx: CanvasRenderingContext2D, bar: TaskBarConfig) => {
+    // Barra de fondo
+    ctx.fillStyle = bar.selected ? colors.selectedColor + "30" : colors.progressBg;
+    ctx.fillRect(bar.x, bar.y, bar.width, bar.height);
+    
+    // Barra de progreso
+    const progressWidth = bar.width * bar.progress;
+    
+    if (bar.type === "Summary") {
+      // Summary task con patrón especial
+      ctx.fillStyle = colors.summary;
+      ctx.fillRect(bar.x, bar.y, progressWidth, bar.height);
+      
+      // Patrón de líneas para summary
+      ctx.strokeStyle = colors.background;
+      ctx.lineWidth = 1;
+      for (let i = 0; i < progressWidth; i += 8) {
+        ctx.beginPath();
+        ctx.moveTo(bar.x + i, bar.y);
+        ctx.lineTo(bar.x + i, bar.y + bar.height);
+        ctx.stroke();
+      }
+    } else {
+      // Task normal
+      ctx.fillStyle = colors.progressFill;
+      ctx.fillRect(bar.x, bar.y, progressWidth, bar.height);
+    }
+    
+    // Borde
+    ctx.strokeStyle = bar.selected ? colors.selectedColor : colors.border;
+    ctx.lineWidth = bar.selected ? 2 : 1;
+    ctx.strokeRect(bar.x, bar.y, bar.width, bar.height);
+    
+    // Texto de porcentaje si hay espacio
+    if (bar.width > 50) {
+      ctx.fillStyle = colors.text;
+      ctx.font = "10px Arial";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        `${Math.round(bar.progress * 100)}%`,
+        bar.x + bar.width / 2,
+        bar.y + bar.height / 2 + 3
+      );
+    }
+  }, [colors]);
+
+  // Función para dibujar flecha
+  const drawArrow = useCallback((ctx: CanvasRenderingContext2D, x1: number, y1: number, x2: number, y2: number) => {
+    ctx.strokeStyle = colors.arrowColor;
+    ctx.fillStyle = colors.arrowColor;
+    ctx.lineWidth = 2;
+    
+    // Línea principal
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    
+    // Punta de flecha
+    const arrowLength = 8;
+    const arrowAngle = Math.PI / 6;
+    const angle = Math.atan2(y2 - y1, x2 - x1);
+    
+    ctx.beginPath();
+    ctx.moveTo(x2, y2);
+    ctx.lineTo(
+      x2 - arrowLength * Math.cos(angle - arrowAngle),
+      y2 - arrowLength * Math.sin(angle - arrowAngle)
+    );
+    ctx.lineTo(
+      x2 - arrowLength * Math.cos(angle + arrowAngle),
+      y2 - arrowLength * Math.sin(angle + arrowAngle)
+    );
+    ctx.closePath();
+    ctx.fill();
+  }, [colors]);
+  const drawTimeHeader = useCallback((ctx: CanvasRenderingContext2D) => {
+    const timelineWidth = getTimelineWidth();
+
+    // Dibujar fondo del header
+    ctx.fillStyle = colors.background;
+    ctx.fillRect(config.leftPanelWidth, 0, timelineWidth, config.headerHeight);
+    
+    // Línea divisoria principal
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(config.leftPanelWidth, config.headerHeight);
+    ctx.lineTo(config.leftPanelWidth + timelineWidth, config.headerHeight);
+    ctx.stroke();
+
+    const intervals = getTimeIntervals();
+    const cellWidth = config.minCellWidth; // Usar ancho fijo
+
+    // Si es escala de minutos u horas, mostrar fechas en la parte superior
+    if (timeScale === "minute" || timeScale === "hour") {
+      const headerTop = getTimeHeaderTop();
+      ctx.fillStyle = colors.text;
+      ctx.font = "bold 12px Arial";
+      ctx.textAlign = "left";
+      
+      // Calcular cuántos intervalos corresponden a cada día
+      const intervalsPerDay = timeScale === "minute" ? 48 : 24; // 30min*48 = 24h, 1h*24 = 24h
+      const dayWidth = cellWidth * intervalsPerDay;
+      
+      headerTop.forEach((dateText, dayIndex) => {
+        const x = config.leftPanelWidth + (dayIndex * dayWidth);
+        if (x < config.leftPanelWidth + timelineWidth) {
+          ctx.fillText(dateText, x + 5, 20);
+        }
+      });
+      
+      // Línea divisoria
+      ctx.strokeStyle = colors.gridLineColor;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(config.leftPanelWidth, 30);
+      ctx.lineTo(config.leftPanelWidth + timelineWidth, 30);
+      ctx.stroke();
+    }
+
+    // Si es escala de días, mostrar mes arriba
+    if (timeScale === "day") {
+      const headerTop = getTimeHeaderTop();
+      ctx.fillStyle = colors.text;
+      ctx.font = "bold 12px Arial";
+      ctx.textAlign = "left";
+      
+      // Mostrar mes al inicio de cada grupo de días
+      let currentMonth = "";
+      intervals.forEach((dayText, index) => {
+        const x = config.leftPanelWidth + (index * cellWidth);
+        const dateRange = getDateRange();
+        const date = new Date(dateRange.startDate.getTime() + index * 24 * 60 * 60 * 1000);
+        const monthStr = date.toLocaleDateString("es-ES", { month: "short" });
+        
+        if (monthStr !== currentMonth && index < headerTop.length) {
+          currentMonth = monthStr;
+          ctx.fillText(headerTop[index], x + 5, 20);
+        }
+      });
+      
+      // Línea divisoria para días
+      ctx.strokeStyle = colors.gridLineColor;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(config.leftPanelWidth, 30);
+      ctx.lineTo(config.leftPanelWidth + timelineWidth, 30);
+      ctx.stroke();
+    }
+
+    // Dibujar intervalos de tiempo principales
+    ctx.fillStyle = colors.text;
+    ctx.font = "12px Arial";
+    ctx.textAlign = "center";
+    
+    intervals.forEach((interval, index) => {
+      const x = config.leftPanelWidth + (index * cellWidth);
+      
+      // Línea vertical
+      ctx.strokeStyle = colors.gridLineColor;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      const startY = (timeScale === "minute" || timeScale === "hour" || timeScale === "day") ? 30 : 0;
+      ctx.moveTo(x, startY);
+      ctx.lineTo(x, config.headerHeight);
+      ctx.stroke();
+      
+      // Texto del intervalo con mejor espaciado
+      const textY = (timeScale === "minute" || timeScale === "hour" || timeScale === "day") ? 60 : config.headerHeight / 2 + 4;
+      ctx.fillStyle = colors.text;
+      
+      // Verificar que hay suficiente espacio para el texto
+      if (cellWidth > 40) {
+        ctx.fillText(interval, x + cellWidth / 2, textY);
+      }
+    });
+
+    // Línea vertical final
+    ctx.strokeStyle = colors.gridLineColor;
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(config.leftPanelWidth + timelineWidth, 0);
+    ctx.lineTo(config.leftPanelWidth + timelineWidth, config.headerHeight);
+    ctx.stroke();
+    
+    // Restablecer textAlign
+    ctx.textAlign = "left";
+  }, [colors, config, getTimeIntervals, getTimeHeaderTop, getTimelineWidth, timeScale, getDateRange]);
+
+  // Función para truncar texto si es muy largo
+  const truncateText = useCallback((ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string => {
+    const metrics = ctx.measureText(text);
+    if (metrics.width <= maxWidth) return text;
+    
+    let truncated = text;
+    while (ctx.measureText(truncated + "...").width > maxWidth && truncated.length > 0) {
+      truncated = truncated.slice(0, -1);
+    }
+    return truncated + "...";
+  }, []);
+
+  // Función para dibujar la grilla de fondo
+  const drawGrid = useCallback((ctx: CanvasRenderingContext2D, tasks: HierarchicalTask[], canvas: HTMLCanvasElement) => {
+    
+    // Dibujar líneas verticales de tiempo
+    const intervals = getTimeIntervals();
+    
+    ctx.strokeStyle = colors.gridLineColor;
+    ctx.lineWidth = 1;
+    
+    intervals.forEach((_, index) => {
+      const x = config.leftPanelWidth + (index * config.minCellWidth);
+      ctx.beginPath();
+      ctx.moveTo(x, config.headerHeight);
+      ctx.lineTo(x, canvas.height);
+      ctx.stroke();
+    });
+    
+    // Dibujar líneas horizontales de tareas
+    tasks.forEach((_, index) => {
+      const y = config.headerHeight + ((index + 1) * config.rowHeight);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+    });
+    
+    // Línea vertical separadora del panel izquierdo
+    ctx.strokeStyle = colors.gridLineColor;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(config.leftPanelWidth, 0);
+    ctx.lineTo(config.leftPanelWidth, canvas.height);
+    ctx.stroke();
+  }, [colors, config, getTimeIntervals]);
+
+  // Función para dibujar panel izquierdo con nombres de tareas
+  const drawLeftPanel = useCallback((ctx: CanvasRenderingContext2D, tasks: HierarchicalTask[]) => {
+    ctx.fillStyle = colors.background;
+    ctx.fillRect(0, 0, config.leftPanelWidth, ctx.canvas.height);
+    
+    // Línea divisoria vertical
+    ctx.strokeStyle = colors.border;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(config.leftPanelWidth, 0);
+    ctx.lineTo(config.leftPanelWidth, ctx.canvas.height);
+    ctx.stroke();
+
+    // Dibujar headers de columnas
+    ctx.fillStyle = colors.text;
+    ctx.font = "bold 12px Arial";
+    ctx.textAlign = "center";
+    
+    const headerY = config.headerHeight / 2;
+    ctx.fillText("Nombre", panelConfig.nameWidth / 2, headerY);
+    ctx.fillText("Código", panelConfig.nameWidth + panelConfig.codeWidth / 2, headerY);
+    ctx.fillText("Inicio", panelConfig.nameWidth + panelConfig.codeWidth + panelConfig.startDateWidth / 2, headerY);
+    ctx.fillText("Fin", panelConfig.nameWidth + panelConfig.codeWidth + panelConfig.startDateWidth + panelConfig.endDateWidth / 2, headerY);
+    ctx.fillText("Duración", panelConfig.nameWidth + panelConfig.codeWidth + panelConfig.startDateWidth + panelConfig.endDateWidth + panelConfig.durationWidth / 2, headerY);
+    
+    // Líneas divisorias de headers
+    ctx.strokeStyle = colors.gridLineColor;
+    ctx.lineWidth = 1;
+    let xPos = panelConfig.nameWidth;
+    
+    [panelConfig.codeWidth, panelConfig.startDateWidth, panelConfig.endDateWidth, panelConfig.durationWidth].forEach(width => {
+      ctx.beginPath();
+      ctx.moveTo(xPos, 0);
+      ctx.lineTo(xPos, ctx.canvas.height);
+      ctx.stroke();
+      xPos += width;
+    });
+
+    tasks.forEach((task, index) => {
+      const y = config.headerHeight + (index * config.rowHeight);
+      
+      // Fondo de fila (alternado)
+      if (index % 2 === 0) {
+        ctx.fillStyle = theme === 'dark' ? 'rgba(55, 65, 81, 0.3)' : 'rgba(249, 250, 251, 0.8)';
+        ctx.fillRect(0, y, config.leftPanelWidth, config.rowHeight);
+      }
+
+      const indent = task.level * 20;
+      const rowCenterY = y + config.rowHeight / 2 + 4;
+      
+      // Área para icono de collapse/expand (solo Summary)
+      if (task.type === "Summary") {
+        const iconX = 10 + indent;
+        const iconY = y + config.rowHeight / 2;
+        
+        ctx.fillStyle = colors.text;
+        ctx.font = "12px Arial";
+        const icon = task.open !== false ? "▼" : "▶";
+        ctx.fillText(icon, iconX, iconY + 3);
+      }
+      
+      // Icono de tipo de tarea
+      const typeIconX = 30 + indent;
+      ctx.fillStyle = colors.text;
+      ctx.font = "14px Arial";
+      let typeIcon = "";
+      
+      if (task.type === "Task") {
+        typeIcon = "■";
+      } else if (task.type === "Milestone") {
+        typeIcon = "♦";
+      }
+      
+      if (typeIcon) {
+        ctx.fillText(typeIcon, typeIconX, rowCenterY);
+      }
+      
+      // Columna NOMBRE
+      ctx.fillStyle = selectedTask === task.id ? colors.selectedColor : colors.text;
+      ctx.font = task.type === "Summary" ? "bold 12px Arial" : "12px Arial";
+      ctx.textAlign = "left";
+      const nameX = 50 + indent;
+      const nameMaxWidth = panelConfig.nameWidth - nameX - 10;
+      const truncatedName = truncateText(ctx, task.nombre || task.text, nameMaxWidth);
+      ctx.fillText(truncatedName, nameX, rowCenterY);
+      
+      // Columna CÓDIGO
+      ctx.fillStyle = colors.text;
+      ctx.font = "11px Arial";
+      ctx.textAlign = "center";
+      const codeX = panelConfig.nameWidth + panelConfig.codeWidth / 2;
+      ctx.fillText(task.code || "-", codeX, rowCenterY);
+      
+      // Columna INICIO
+      ctx.textAlign = "center";
+      const startX = panelConfig.nameWidth + panelConfig.codeWidth + panelConfig.startDateWidth / 2;
+      const startDateStr = new Date(task.start).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" });
+      ctx.fillText(startDateStr, startX, rowCenterY);
+      
+      // Columna FIN
+      const endX = panelConfig.nameWidth + panelConfig.codeWidth + panelConfig.startDateWidth + panelConfig.endDateWidth / 2;
+      const endDateStr = new Date(task.end).toLocaleDateString("es-ES", { day: "2-digit", month: "2-digit" });
+      ctx.fillText(endDateStr, endX, rowCenterY);
+      
+      // Columna DURACIÓN
+      const durationX = panelConfig.nameWidth + panelConfig.codeWidth + panelConfig.startDateWidth + panelConfig.endDateWidth + panelConfig.durationWidth / 2;
+      const duration = calculateDuration(task.start, task.end);
+      ctx.fillText(duration, durationX, rowCenterY);
+      
+      // Línea horizontal
+      ctx.strokeStyle = colors.gridLineColor;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, y + config.rowHeight);
+      ctx.lineTo(config.leftPanelWidth, y + config.rowHeight);
+      ctx.stroke();
+    });
+  }, [colors, config, selectedTask, truncateText, theme, panelConfig, calculateDuration]);
+
+  // Función para dibujar barras de tareas
+  const drawTaskBars = useCallback((ctx: CanvasRenderingContext2D, tasks: HierarchicalTask[]) => {
+    const dateRange = getDateRange();
+    const startDate = dateRange.startDate;
+
+    tasks.forEach((task, index) => {
+      const y = config.headerHeight + (index * config.rowHeight) + (config.rowHeight - config.taskHeight) / 2;
+      
+      const startX = config.leftPanelWidth + getTimePosition(task.start, startDate);
+      const endX = config.leftPanelWidth + getTimePosition(task.end, startDate);
+      const width = Math.max(endX - startX, 2);
+
+      if (task.type === "Milestone") {
+        // Dibujar milestone como diamante
+        drawMilestone(ctx, startX, y + config.taskHeight / 2, task.progress === 1.0);
+      } else {
+        // Dibujar barra de tarea
+        drawTaskBar(ctx, {
+          x: startX,
+          y: y,
+          width: width,
+          height: config.taskHeight,
+          progress: task.progress,
+          type: task.type,
+          selected: selectedTask === task.id
+        });
+      }
+    });
+  }, [config, getTimePosition, selectedTask, drawMilestone, drawTaskBar, getDateRange]);
+
+  // Función para dibujar flechas de enlaces (e2s)
+  const drawLinks = useCallback((ctx: CanvasRenderingContext2D, tasks: HierarchicalTask[]) => {
+    const dateRange = getDateRange();
+    const startDate = dateRange.startDate;
+    
+    snapshot.links.forEach(link => {
+      const sourceTask = tasks.find(t => t.id === link.source);
+      const targetTask = tasks.find(t => t.id === link.target);
+      
+      if (!sourceTask || !targetTask) return;
+      
+      const sourceIndex = tasks.findIndex(t => t.id === link.source);
+      const targetIndex = tasks.findIndex(t => t.id === link.target);
+      
+      const sourceX = config.leftPanelWidth + getTimePosition(sourceTask.end, startDate);
+      const sourceY = config.headerHeight + (sourceIndex * config.rowHeight) + config.rowHeight / 2;
+      
+      const targetX = config.leftPanelWidth + getTimePosition(targetTask.start, startDate);
+      const targetY = config.headerHeight + (targetIndex * config.rowHeight) + config.rowHeight / 2;
+      
+      drawArrow(ctx, sourceX, sourceY, targetX, targetY);
+    });
+  }, [config, getTimePosition, snapshot.links, drawArrow, getDateRange]);
+
+  // Función principal de renderizado (sin setState para evitar cascadas)
+  const render = useCallback(() => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    
+    if (!canvas || !container) return;
+    
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    
+    // Obtener jerarquía de tareas para calcular altura necesaria
+    const hierarchicalTasks = createTaskHierarchy();
+    
+    // Calcular ancho total incluyendo timeline para permitir scroll horizontal
+    const timelineWidth = getTimelineWidth();
+    const totalWidth = config.leftPanelWidth + timelineWidth;
+    
+    // Calcular altura total necesaria para todas las tareas
+    const totalHeight = config.headerHeight + (hierarchicalTasks.length * config.rowHeight) + 50; // +50 padding
+    
+    // Ajustar tamaño del canvas (sin setState)
+    canvas.width = Math.max(container.clientWidth, totalWidth);
+    canvas.height = Math.max(container.clientHeight, totalHeight); // Usar el mayor entre altura visible y necesaria
+    
+    // Configurar fondo usando el color del tema
+    ctx.fillStyle = colors.background;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Configurar el texto antes de las operaciones de dibujo
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    
+    // Dibujar componentes con el orden correcto
+    drawTimeHeader(ctx);
+    drawGrid(ctx, hierarchicalTasks, canvas);
+    drawLeftPanel(ctx, hierarchicalTasks);
+    drawTaskBars(ctx, hierarchicalTasks);
+    drawLinks(ctx, hierarchicalTasks);
+    
+  }, [colors, createTaskHierarchy, drawTimeHeader, drawGrid, drawLeftPanel, drawTaskBars, drawLinks, config, getTimelineWidth]);
+
+  // Manejar click en canvas
+  const handleCanvasClick = useCallback((event: MouseEvent) => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    
+    // Posición del mouse relativa al canvas considerando scroll
+    const mouseX = event.clientX - rect.left + container.scrollLeft;
+    const mouseY = event.clientY - rect.top + container.scrollTop;
+    
+    // Posición del mouse relativa al contenedor (para verificar si está dentro)
+    const containerMouseX = event.clientX - containerRect.left;
+    const containerMouseY = event.clientY - containerRect.top;
+    
+    // Verificar si el mouse está dentro del área visible del contenedor
+    const isInsideContainer = containerMouseX >= 0 && 
+                             containerMouseX <= container.clientWidth &&
+                             containerMouseY >= 0 && 
+                             containerMouseY <= container.clientHeight;
+    
+    // Verificar si el click fue en el panel izquierdo (nombres de tareas)
+    if (isInsideContainer && mouseX < config.leftPanelWidth && mouseY > config.headerHeight) {
+      const taskIndex = Math.floor((mouseY - config.headerHeight) / config.rowHeight);
+      const hierarchicalTasks = createTaskHierarchy();
+      const task = hierarchicalTasks[taskIndex];
+      
+      // Verificar que el taskIndex está dentro del rango válido
+      if (task && taskIndex < hierarchicalTasks.length) {
+        // Toggle selección
+        setSelectedTask(prev => prev === task.id ? null : task.id);
+        
+        // Toggle para summary tasks (expandir/contraer)
+        if (task.type === "Summary") {
+          const newOpenState = task.open === false ? true : false; // Toggle explícito
+          onTaskUpdate(task.id, { open: newOpenState });
+        }
+      }
+    }
+  }, [createTaskHierarchy, onTaskUpdate, config.headerHeight, config.leftPanelWidth, config.rowHeight]);
+
+  // Manejar mouse move para tooltips
+  const handleMouseMove = useCallback((event: MouseEvent) => {
+    const canvas = canvasRef.current;
+    const container = containerRef.current;
+    if (!canvas || !container) return;
+    
+    const rect = canvas.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    
+    // Posición del mouse relativa al canvas considerando scroll
+    const mouseX = event.clientX - rect.left + container.scrollLeft;
+    const mouseY = event.clientY - rect.top + container.scrollTop;
+    
+    // Posición del mouse relativa al contenedor (para verificar si está dentro)
+    const containerMouseX = event.clientX - containerRect.left;
+    const containerMouseY = event.clientY - containerRect.top;
+    
+    // Verificar si el mouse está dentro del área visible del contenedor (más flexible)
+    const isInsideContainer = containerMouseX >= 0 && 
+                             containerMouseX <= container.clientWidth &&
+                             containerMouseY >= 0 && 
+                             containerMouseY <= container.clientHeight;
+    
+    // También verificar si el mouse está sobre el canvas (incluye área de scroll)
+    const isOverCanvas = event.clientX >= rect.left && 
+                        event.clientX <= rect.right &&
+                        event.clientY >= rect.top && 
+                        event.clientY <= rect.bottom;
+    
+    if ((isInsideContainer || isOverCanvas) && mouseY > config.headerHeight) {
+      const taskIndex = Math.floor((mouseY - config.headerHeight) / config.rowHeight);
+      const hierarchicalTasks = createTaskHierarchy();
+      
+      // Verificar que el taskIndex está dentro del rango válido
+      if (taskIndex >= 0 && taskIndex < hierarchicalTasks.length) {
+        const task = hierarchicalTasks[taskIndex];
+        
+        if (task && mouseX > config.leftPanelWidth) {
+          setTooltip({
+            visible: true,
+            x: event.clientX, // Usar posición de pantalla para el tooltip
+            y: event.clientY, // Usar posición de pantalla para el tooltip
+            task: task
+          });
+        } else {
+          setTooltip(prev => ({ ...prev, visible: false }));
+        }
+      } else {
+        setTooltip(prev => ({ ...prev, visible: false }));
+      }
+    } else {
+      setTooltip(prev => ({ ...prev, visible: false }));
+    }
+  }, [createTaskHierarchy, config.headerHeight, config.leftPanelWidth, config.rowHeight]);
+
+  // Efecto para calcular y actualizar dimensiones del contenido
+  useEffect(() => {
+    const hierarchicalTasks = createTaskHierarchy();
+    const timelineWidth = getTimelineWidth();
+    const totalWidth = config.leftPanelWidth + timelineWidth;
+    const totalHeight = config.headerHeight + (hierarchicalTasks.length * config.rowHeight) + 50;
+    
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setContentDimensions({
+      width: totalWidth,
+      height: totalHeight
+    });
+  }, [snapshot.tasks, timeScale, createTaskHierarchy, getTimelineWidth, config]);
+
+  // Efecto para renderizar el canvas
+  useEffect(() => {
+    render();
+  }, [render, selectedTask, theme]);
+
+  // Event listeners para interacciones
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    canvas.addEventListener("click", handleCanvasClick);
+    canvas.addEventListener("mousemove", handleMouseMove);
+    
+    return () => {
+      canvas.removeEventListener("click", handleCanvasClick);
+      canvas.removeEventListener("mousemove", handleMouseMove);
+    };
+  }, [handleCanvasClick, handleMouseMove]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      requestAnimationFrame(render);
+    };
+    
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [render]);
+
+  return (
+    <div ref={containerRef} className="relative w-full h-full bg-background overflow-auto">
+      {/* Elemento invisible que define el área de scroll */}
+      <div 
+        style={{
+          width: contentDimensions.width,
+          height: contentDimensions.height,
+          pointerEvents: 'none'
+        }}
+      />
+      
+      <canvas
+        ref={canvasRef}
+        className="absolute top-0 left-0 cursor-pointer"
+        style={{ 
+          minWidth: '100%',
+          minHeight: '100%' 
+        }}
+      />
+      
+      {/* Tooltip */}
+      {tooltip.visible && tooltip.task && (
+        <div
+          className={`fixed z-50 p-3 rounded-lg text-sm pointer-events-none shadow-lg border ${
+            theme === 'dark' 
+              ? 'bg-gray-800 text-white border-gray-600' 
+              : 'bg-white text-black border-gray-300'
+          }`}
+          style={{ 
+            left: tooltip.x + 10, 
+            top: tooltip.y - 30,
+            transform: 'translateZ(0)' // Forzar aceleración hardware
+          }}
+        >
+          <div className="font-semibold mb-1">{tooltip.task.nombre || tooltip.task.text}</div>
+          <div className="text-xs space-y-1">
+            <div>Código: {tooltip.task.code || 'N/A'}</div>
+            <div>Inicio: {tooltip.task.start}</div>
+            <div>Fin: {tooltip.task.end}</div>
+            <div>Progreso: {Math.round(tooltip.task.progress * 100)}%</div>
+            <div>Tipo: {tooltip.task.type}</div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

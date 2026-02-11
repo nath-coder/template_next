@@ -1,4 +1,29 @@
 // Mock data para diferentes vistas del Gantt
+import { Snapshot } from "./types";
+
+// MockData específico para el Gantt personalizado
+export const mockSnapshot: Snapshot = {
+  version: 1,
+  tasks: [
+    { id: "S1", text: "Línea A (Summary)", nombre: "Línea de Producción A", code: "LP-A01", start: "2026-02-10 08:00:00", end: "2026-02-14 20:00:00", parent: null, type: "Summary", progress: 0.35, open: true },
+    { id: "T1", text: "Corte/Prep", nombre: "Corte y Preparación", code: "CT-001", start: "2026-02-10 08:00:00", end: "2026-02-10 10:39:00", parent: "S1", type: "Task", progress: 0.65 },
+    { id: "T2", text: "Montaje PCB", nombre: "Montaje Circuito", code: "MT-002", start: "2026-02-10 10:30:00", end: "2026-02-10 13:10:00", parent: "S1", type: "Task", progress: 0.20 },
+    { id: "T3", text: "Prueba funcional", nombre: "Test Funcional", code: "TF-003", start: "2026-02-10 13:10:00", end: "2026-02-10 15:00:00", parent: "S1", type: "Task", progress: 0.00 },
+    { id: "M1", text: "Hito QA", nombre: "Milestone QA", code: "QA-001", start: "2026-02-10 15:00:00", end: "2026-02-10 15:00:00", parent: "S1", type: "Milestone", progress: 1.0 },
+
+    { id: "S2", text: "Línea B (Summary)", nombre: "Línea de Producción B", code: "LP-B01", start: "2026-02-10 09:00:00", end: "2026-02-10 19:00:00", parent: null, type: "Summary", progress: 0.55, open: true },
+    { id: "T4", text: "Setup", nombre: "Configuración", code: "ST-004", start: "2026-02-10 09:00:00", end: "2026-02-10 10:00:00", parent: "S2", type: "Task", progress: 1.0 },
+    { id: "T5", text: "Producción", nombre: "Proceso Principal", code: "PR-005", start: "2026-02-10 10:00:00", end: "2026-02-10 17:30:00", parent: "S2", type: "Task", progress: 0.45 },
+    { id: "T6", text: "Empaque", nombre: "Empaque Final", code: "EP-006", start: "2026-02-10 17:30:00", end: "2026-02-10 19:00:00", parent: "S2", type: "Task", progress: 0.10 },
+  ],
+  links: [
+    { id: "L1", source: "T1", target: "T2", type: "e2s" },
+    { id: "L2", source: "T2", target: "T3", type: "e2s" },
+    { id: "L3", source: "T3", target: "M1", type: "e2s" },
+    { id: "L4", source: "T4", target: "T5", type: "e2s" },
+    { id: "L5", source: "T5", target: "T6", type: "e2s" },
+  ],
+};
 
 export type Task = {
   id: number | string;
