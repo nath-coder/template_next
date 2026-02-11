@@ -121,7 +121,6 @@ export default function CustomGanttPage() {
         <CustomGanttChart
           snapshot={snapshot}
           timeScale={timeScale}
-          dateFilter={dateFilter}
           onTaskUpdate={handleTaskUpdate}
           onLinkUpdate={handleLinkUpdate}
         />
