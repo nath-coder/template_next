@@ -1,11 +1,20 @@
 import { useCallback } from "react";
-import { Snapshot, TimeScale } from "@/lib/types";
+import { Snapshot, TimeScale, DateFilter } from "@/lib/types";
 import { HierarchicalTask } from "../types/ganttTypes";
 import { parseDate } from "../utils/ganttUtils";
 
-export const useGanttLogic = (snapshot: Snapshot, timeScale: TimeScale) => {
-  // Función para calcular el rango de fechas automáticamente desde las tareas
+export const useGanttLogic = (snapshot: Snapshot, timeScale: TimeScale, dateFilter?: DateFilter) => {
+  // Función para calcular el rango de fechas - usar filtro si está disponible
   const getDateRange = useCallback(() => {
+    // Si hay filtro de fechas, usarlo
+    if (dateFilter?.startDate && dateFilter?.endDate) {
+      return {
+        startDate: new Date(dateFilter.startDate),
+        endDate: new Date(dateFilter.endDate)
+      };
+    }
+    
+    // Si no hay filtro, calcular automáticamente desde las tareas
     if (snapshot.tasks.length === 0) {
       const today = new Date();
       return {
@@ -48,7 +57,7 @@ export const useGanttLogic = (snapshot: Snapshot, timeScale: TimeScale) => {
       startDate: new Date(minDate.getTime() - marginMs),
       endDate: new Date(maxDate.getTime() + marginMs)
     };
-  }, [snapshot.tasks, timeScale]);
+  }, [snapshot.tasks, timeScale, dateFilter]);
 
   // Función para crear jerarquía de tareas con visibilidad
   const createTaskHierarchy = useCallback((): HierarchicalTask[] => {

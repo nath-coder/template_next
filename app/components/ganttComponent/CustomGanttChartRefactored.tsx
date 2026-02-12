@@ -2,7 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { useTheme } from "next-themes";
-import { Snapshot, TaskUpdate, LinkUpdate, TimeScale } from "@/lib/types";
+import { Snapshot, TaskUpdate, LinkUpdate, TimeScale, DateFilter } from "@/lib/types";
 
 // Importar tipos, hooks, componentes y utilidades
 import { TooltipState } from "./types/ganttTypes";
@@ -16,6 +16,7 @@ import { GanttTooltip } from "./components/GanttTooltip";
 interface CustomGanttChartProps {
   snapshot: Snapshot;
   timeScale: TimeScale;
+  dateFilter: DateFilter;
   onTaskUpdate: (taskId: string, updates: TaskUpdate) => void;
   onLinkUpdate: (linkId: string, updates: LinkUpdate) => void;
 }
@@ -23,6 +24,7 @@ interface CustomGanttChartProps {
 export default function CustomGanttChart({
   snapshot,
   timeScale,
+  dateFilter,
   onTaskUpdate,
 }: CustomGanttChartProps) {
   const { theme } = useTheme();
@@ -52,7 +54,7 @@ export default function CustomGanttChart({
     getTimelineWidth,
     getTimePosition,
     getTimeHeaderTop
-  } = useGanttLogic(snapshot, timeScale);
+  } = useGanttLogic(snapshot, timeScale, dateFilter);
 
   // Calcular dimensiones del contenido usando useMemo
   const contentDimensions = useMemo(() => {
@@ -65,7 +67,7 @@ export default function CustomGanttChart({
       width: totalWidth,
       height: totalHeight
     };
-  }, [snapshot.tasks, timeScale, createTaskHierarchy, getTimelineWidth, config]);
+  }, [createTaskHierarchy, getTimelineWidth, config]);
 
   // Hook para renderizado
   const renderingFunctions = useGanttRendering({

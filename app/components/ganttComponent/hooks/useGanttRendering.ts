@@ -408,9 +408,21 @@ export const useGanttRendering = (props: UseGanttRenderingProps) => {
   const drawTaskBars = useCallback((ctx: CanvasRenderingContext2D, tasks: HierarchicalTask[]) => {
     const dateRange = getDateRange();
     const startDate = dateRange.startDate;
+    const endDate = dateRange.endDate;
 
-    tasks.forEach((task, index) => {
-      const y = config.headerHeight + (index * config.rowHeight) + (config.rowHeight - config.taskHeight) / 2;
+    // Filtrar tareas que están dentro del rango de fechas visible
+    const visibleTasks = tasks.filter(task => {
+      const taskStart = new Date(task.start);
+      const taskEnd = new Date(task.end);
+      
+      // Mostrar la tarea si se superpone con el rango visible
+      return taskEnd >= startDate && taskStart <= endDate;
+    });
+
+    visibleTasks.forEach((task) => {
+      // Usar el índice original para mantener la posición vertical correcta
+      const originalIndex = tasks.findIndex(t => t.id === task.id);
+      const y = config.headerHeight + (originalIndex * config.rowHeight) + (config.rowHeight - config.taskHeight) / 2;
       
       const startX = config.leftPanelWidth + getTimePosition(task.start, startDate, config.minCellWidth);
       const endX = config.leftPanelWidth + getTimePosition(task.end, startDate, config.minCellWidth);
@@ -438,12 +450,25 @@ export const useGanttRendering = (props: UseGanttRenderingProps) => {
   const drawLinks = useCallback((ctx: CanvasRenderingContext2D, tasks: HierarchicalTask[]) => {
     const dateRange = getDateRange();
     const startDate = dateRange.startDate;
+    const endDate = dateRange.endDate;
+    
+    // Filtrar tareas visibles dentro del rango de fechas
+    const visibleTaskIds = new Set(
+      tasks.filter(task => {
+        const taskStart = new Date(task.start);
+        const taskEnd = new Date(task.end);
+        return taskEnd >= startDate && taskStart <= endDate;
+      }).map(task => task.id)
+    );
     
     snapshot.links.forEach(link => {
       const sourceTask = tasks.find(t => t.id === link.source);
       const targetTask = tasks.find(t => t.id === link.target);
       
-      if (!sourceTask || !targetTask) return;
+      // Solo dibujar enlaces si ambas tareas están visibles en el rango actual
+      if (!sourceTask || !targetTask || 
+          !visibleTaskIds.has(sourceTask.id) || 
+          !visibleTaskIds.has(targetTask.id)) return;
       
       const sourceIndex = tasks.findIndex(t => t.id === link.source);
       const targetIndex = tasks.findIndex(t => t.id === link.target);
