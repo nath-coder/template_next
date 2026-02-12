@@ -424,15 +424,29 @@ export const useGanttRendering = (props: UseGanttRenderingProps) => {
       const originalIndex = tasks.findIndex(t => t.id === task.id);
       const y = config.headerHeight + (originalIndex * config.rowHeight) + (config.rowHeight - config.taskHeight) / 2;
       
-      const startX = config.leftPanelWidth + getTimePosition(task.start, startDate, config.minCellWidth);
-      const endX = config.leftPanelWidth + getTimePosition(task.end, startDate, config.minCellWidth);
+      const taskStart = new Date(task.start);
+      const taskEnd = new Date(task.end);
+      
+      // Calcular posiciones, pero ajustar para el rango visible
+      const rawStartX = config.leftPanelWidth + getTimePosition(task.start, startDate, config.minCellWidth);
+      const rawEndX = config.leftPanelWidth + getTimePosition(task.end, startDate, config.minCellWidth);
+      
+      // Ajustar startX: si la tarea empieza antes del rango visible, empezar desde el borde izquierdo del timeline
+      const startX = taskStart < startDate ? config.leftPanelWidth : rawStartX;
+      
+      // Ajustar endX: si la tarea termina después del rango visible, terminar en el borde derecho del timeline
+      const timelineWidth = getTimelineWidth(config.minCellWidth);
+      const maxEndX = config.leftPanelWidth + timelineWidth;
+      const endX = taskEnd > endDate ? maxEndX : rawEndX;
+      
       const width = Math.max(endX - startX, 2);
 
       if (task.type === "Milestone") {
-        // Dibujar milestone como diamante
-        drawMilestone(ctx, startX, y + config.taskHeight / 2, task.progress === 1.0);
+        // Para milestones, usar la posición original si está visible
+        const milestoneX = taskStart >= startDate && taskStart <= endDate ? rawStartX : startX;
+        drawMilestone(ctx, milestoneX, y + config.taskHeight / 2, task.progress === 1.0);
       } else {
-        // Dibujar barra de tarea
+        // Dibujar barra de tarea ajustada
         drawTaskBar(ctx, {
           x: startX,
           y: y,
@@ -444,7 +458,7 @@ export const useGanttRendering = (props: UseGanttRenderingProps) => {
         });
       }
     });
-  }, [config, getTimePosition, selectedTask, drawMilestone, drawTaskBar, getDateRange]);
+  }, [config, getTimePosition, selectedTask, drawMilestone, drawTaskBar, getDateRange, getTimelineWidth]);
 
   // Función para dibujar flechas de enlaces (e2s)
   const drawLinks = useCallback((ctx: CanvasRenderingContext2D, tasks: HierarchicalTask[]) => {
