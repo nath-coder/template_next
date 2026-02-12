@@ -61,15 +61,15 @@ export default function CustomGanttPage() {
     const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
     
     const allScales = [
-      { value: "minute" as TimeScale, label: "Minuto", maxDays: 2 },
-      { value: "hour" as TimeScale, label: "Hora", maxDays: 15 },
-      { value: "day" as TimeScale, label: "Día", maxDays: 90 },
-      { value: "month" as TimeScale, label: "Mes", maxDays: 730 }, // ~2 años
-      { value: "quarter" as TimeScale, label: "Trimestre", maxDays: 1460 }, // ~4 años
-      { value: "year" as TimeScale, label: "Año", maxDays: Infinity }
+      { value: "minute" as TimeScale, label: "Minuto", minDays: 0, maxDays: 2 },
+      { value: "hour" as TimeScale, label: "Hora", minDays: 0, maxDays: 15 },
+      { value: "day" as TimeScale, label: "Día", minDays: 0, maxDays: 90 },
+      { value: "month" as TimeScale, label: "Mes", minDays: 0, maxDays: 730 }, // ~2 años
+      { value: "quarter" as TimeScale, label: "Trimestre", minDays: 30, maxDays: 1460 }, // ~4 años
+      { value: "year" as TimeScale, label: "Año", minDays: 300, maxDays: Infinity } // ~10 meses mínimo
     ];
 
-    return allScales.filter(scale => diffDays <= scale.maxDays);
+    return allScales.filter(scale => diffDays >= scale.minDays && diffDays <= scale.maxDays);
   };
 
   const availableScales = getAvailableTimeScales();
@@ -85,15 +85,25 @@ export default function CustomGanttPage() {
       const end = new Date(newFilter.endDate);
       const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
       
-      const currentScaleValid = availableScales.some(scale => scale.value === timeScale);
+      // Obtener las escalas disponibles para el nuevo rango
+      const newAvailableScales = [
+        { value: "minute" as TimeScale, label: "Minuto", minDays: 0, maxDays: 2 },
+        { value: "hour" as TimeScale, label: "Hora", minDays: 0, maxDays: 15 },
+        { value: "day" as TimeScale, label: "Día", minDays: 0, maxDays: 90 },
+        { value: "month" as TimeScale, label: "Mes", minDays: 0, maxDays: 730 },
+        { value: "quarter" as TimeScale, label: "Trimestre", minDays: 30, maxDays: 1460 },
+        { value: "year" as TimeScale, label: "Año", minDays: 300, maxDays: Infinity }
+      ].filter(scale => diffDays >= scale.minDays && diffDays <= scale.maxDays);
+      
+      const currentScaleValid = newAvailableScales.some(scale => scale.value === timeScale);
       if (!currentScaleValid) {
-        // Seleccionar la primera escala disponible que sea apropiada
-        if (diffDays <= 2) setTimeScale("minute");
-        else if (diffDays <= 15) setTimeScale("hour");
-        else if (diffDays <= 90) setTimeScale("day");
+        // Seleccionar la escala más apropiada para el rango
+        if (diffDays >= 300) setTimeScale("year");
+        else if (diffDays >= 30 && diffDays <= 1460) setTimeScale("quarter");
         else if (diffDays <= 730) setTimeScale("month");
-        else if (diffDays <= 1460) setTimeScale("quarter");
-        else setTimeScale("year");
+        else if (diffDays <= 90) setTimeScale("day");
+        else if (diffDays <= 15) setTimeScale("hour");
+        else if (diffDays <= 2) setTimeScale("minute");
       }
     }
   };

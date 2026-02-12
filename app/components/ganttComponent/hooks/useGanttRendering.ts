@@ -439,7 +439,28 @@ export const useGanttRendering = (props: UseGanttRenderingProps) => {
       const maxEndX = config.leftPanelWidth + timelineWidth;
       const endX = taskEnd > endDate ? maxEndX : rawEndX;
       
-      const width = Math.max(endX - startX, 2);
+      // Calcular ancho mínimo según la escala de tiempo
+      let minWidth;
+      switch (timeScale) {
+        case 'year':
+          minWidth = task.type === 'Summary' ? 2 : 1; // Summary un poco más ancha
+          break;
+        case 'quarter':
+        case 'month':
+          minWidth = task.type === 'Summary' ? 3 : 2;
+          break;
+        default:
+          minWidth = task.type === 'Summary' ? 4 : 3; // Para escalas menores
+      }
+      
+      const width = Math.max(endX - startX, minWidth);
+      
+      // Para escala de años, limitar ancho máximo para evitar barras excesivamente largas
+      let finalWidth = width;
+      if (timeScale === 'year') {
+        const maxWidthForYear = config.minCellWidth * 2; // Máximo 2 celdas de ancho
+        finalWidth = Math.min(width, maxWidthForYear);
+      }
 
       if (task.type === "Milestone") {
         // Para milestones, usar la posición original si está visible
@@ -450,7 +471,7 @@ export const useGanttRendering = (props: UseGanttRenderingProps) => {
         drawTaskBar(ctx, {
           x: startX,
           y: y,
-          width: width,
+          width: finalWidth,
           height: config.taskHeight,
           progress: task.progress,
           type: task.type,
@@ -458,7 +479,7 @@ export const useGanttRendering = (props: UseGanttRenderingProps) => {
         });
       }
     });
-  }, [config, getTimePosition, selectedTask, drawMilestone, drawTaskBar, getDateRange, getTimelineWidth]);
+  }, [config, getTimePosition, selectedTask, drawMilestone, drawTaskBar, getDateRange, getTimelineWidth, timeScale]);
 
   // Función para dibujar flechas de enlaces (e2s)
   const drawLinks = useCallback((ctx: CanvasRenderingContext2D, tasks: HierarchicalTask[]) => {

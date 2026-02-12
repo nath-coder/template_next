@@ -302,11 +302,11 @@ export const useGanttLogic = (snapshot: Snapshot, timeScale: TimeScale, dateFilt
         // Intervalos de 1 año - calcular posición exacta
         const yearDiff = date.getFullYear() - startDate.getFullYear();
         
-        // Calcular la fracción dentro del año
-        const startOfYear = new Date(date.getFullYear(), 0, 1);
-        const dayOfYear = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
-        const daysInYear = new Date(date.getFullYear(), 11, 31).getDate() === 31 ? 
-          (new Date(date.getFullYear(), 1, 29).getDate() === 29 ? 366 : 365) : 365;
+        // Calcular la fracción dentro del año de manera más precisa
+        const startOfTargetYear = new Date(date.getFullYear(), 0, 1);
+        const startOfNextYear = new Date(date.getFullYear() + 1, 0, 1);
+        const dayOfYear = Math.floor((date.getTime() - startOfTargetYear.getTime()) / (24 * 60 * 60 * 1000));
+        const daysInYear = Math.floor((startOfNextYear.getTime() - startOfTargetYear.getTime()) / (24 * 60 * 60 * 1000));
         const fractionalYear = dayOfYear / daysInYear;
         
         position = yearDiff * cellWidth + fractionalYear * cellWidth;

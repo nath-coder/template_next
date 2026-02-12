@@ -5,7 +5,7 @@ import { Snapshot } from "./types";
 export const mockSnapshot: Snapshot = {
   version: 1,
   tasks: [
-    { id: "S1", text: "Línea A (Summary)", nombre: "Línea de Producción A", code: "LP-A01", start: "2026-02-10 08:00:00", end: "2026-02-14 20:00:00", parent: null, type: "Summary", progress: 0.35, open: true },
+    { id: "S1", text: "Línea A (Summary)", nombre: "Línea de Producción A", code: "LP-A01", start: "2026-02-10 08:00:00", end: "2026-04gi-14 20:00:00", parent: null, type: "Summary", progress: 0.35, open: true },
     { id: "T1", text: "Corte/Prep", nombre: "Corte y Preparación", code: "CT-001", start: "2026-02-10 08:00:00", end: "2026-02-10 10:39:00", parent: "S1", type: "Task", progress: 0.65 },
     { id: "T2", text: "Montaje PCB", nombre: "Montaje Circuito", code: "MT-002", start: "2026-02-10 10:30:00", end: "2026-02-10 13:10:00", parent: "S1", type: "Task", progress: 0.20 },
     { id: "T3", text: "Prueba funcional", nombre: "Test Funcional", code: "TF-003", start: "2026-02-10 13:10:00", end: "2026-02-10 15:00:00", parent: "S1", type: "Task", progress: 0.00 },
